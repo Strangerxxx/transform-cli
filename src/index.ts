@@ -6,16 +6,28 @@ import { BufferTransform } from './transforms/buffer-transform';
 import { FFmpegTransform } from './transforms/ffmpeg-transform';
 import { StreamProcessor } from './stream-processor';
 
+/**
+ * Options for video processing including size and seek time
+ */
 interface VideoProcessingOptions {
 	size?: string;
 	seek?: string;
 }
 
+/**
+ * Result object containing processed video and thumbnail buffers
+ */
 interface ProcessingResult {
 	mainBuffer: Buffer;
 	thumbnailBuffer: Buffer;
 }
 
+/**
+ * Process a video stream through parallel transform streams
+ * @param {Readable} inputStream - The input video stream to process
+ * @param {VideoProcessingOptions} options - Processing options for video transformation
+ * @returns {Promise<ProcessingResult>} The processed video and thumbnail buffers
+ */
 const processVideo = async (
 	inputStream: Readable,
 	options: VideoProcessingOptions = {}
@@ -38,6 +50,19 @@ const processVideo = async (
 	}
 };
 
+/**
+ * Process a video file and save the results
+ * Main processing flow:
+ * 1. Validates input file existence
+ * 2. Creates input stream from file
+ * 3. Processes video through parallel streams
+ * 4. Saves processed video and thumbnail to output directory
+ * 
+ * @param {string} input - Path to input video file
+ * @param {string} output - Path to output directory
+ * @param {VideoProcessingOptions} options - Processing options
+ * @returns {Promise<void>}
+ */
 const processVideoFile = async (
 	input: string,
 	output: string,

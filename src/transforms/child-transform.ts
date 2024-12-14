@@ -2,6 +2,9 @@ import { TransformCallback } from 'stream';
 import { spawn, ChildProcess } from 'child_process';
 import { BufferTransform } from "./buffer-transform";
 
+/**
+ * Configuration options for child process transform
+ */
 interface ChildProcessTransformOptions {
 	command: string;
 	args?: string[];
@@ -14,6 +17,11 @@ interface NodeJSError extends Error {
 	code?: string;
 }
 
+/**
+ * A Transform stream that pipes data through a child process
+ * Extends BufferTransform to handle process communication and data buffering
+ * Used as base class for transforms that need to process data through external commands (e.g., FFmpeg)
+ */
 export class ChildProcessTransform extends BufferTransform {
 	private child: ChildProcess | null = null;
 	private timeout: NodeJS.Timeout | null = null;
@@ -21,6 +29,15 @@ export class ChildProcessTransform extends BufferTransform {
 	private hasError = false;
 	private processCompleted = false;
 
+	/**
+	 * Creates a new ChildProcessTransform instance
+	 * @param {ChildProcessTransformOptions} options - Configuration for the child process
+	 * @param {string} options.command - Command to execute
+	 * @param {string[]} [options.args] - Command line arguments
+	 * @param {NodeJS.ProcessEnv} [options.env] - Environment variables
+	 * @param {string} [options.cwd] - Working directory
+	 * @param {number} [options.timeout] - Process timeout in milliseconds
+	 */
 	constructor(options: ChildProcessTransformOptions) {
 		super(`${options.command}Transform`);
 		this.options = {
@@ -39,6 +56,11 @@ export class ChildProcessTransform extends BufferTransform {
 		}
 	}
 
+	/**
+	 * Initializes the child process and sets up stream piping
+	 * Sets up event handlers for process stdout, stderr, and exit
+	 * @private
+	 */
 	private initChildProcess() {
 		try {
 			this.child = spawn(this.options.command, this.options.args || [], {
@@ -124,6 +146,12 @@ export class ChildProcessTransform extends BufferTransform {
 		}
 	}
 
+	/**
+	 * Transform implementation that writes chunks to child process stdin
+	 * @param {any} chunk - Data chunk to process
+	 * @param {BufferEncoding} encoding - Chunk encoding
+	 * @param {TransformCallback} callback - Callback to signal chunk processing completion
+	 */
 	_transform(
 		chunk: any,
 		encoding: BufferEncoding,
@@ -170,6 +198,11 @@ export class ChildProcessTransform extends BufferTransform {
 		}
 	}
 
+	/**
+	 * Called when the transform stream is being flushed
+	 * Ends the child process stdin stream
+	 * @param {TransformCallback} callback - Callback to signal flush completion
+	 */
 	_flush(callback: TransformCallback): void {
 		console.log(`[${this.options.command}] Flush called`);
 		if (this.child && !this.child.killed && !this.processCompleted) {
@@ -185,6 +218,12 @@ export class ChildProcessTransform extends BufferTransform {
 		callback();
 	}
 
+	/**
+	 * Called when the transform stream is being destroyed
+	 * Cleans up child process and timeout
+	 * @param {Error | null} error - Error that caused destruction, if any
+	 * @param {(error: Error | null) => void} callback - Callback to signal destruction completion
+	 */
 	_destroy(error: Error | null, callback: (error: Error | null) => void): void {
 		console.log(`[${this.options.command}] Destroy called`);
 		if (this.timeout) {

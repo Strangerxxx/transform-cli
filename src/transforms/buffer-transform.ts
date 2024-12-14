@@ -1,7 +1,9 @@
 import { Transform, TransformCallback } from 'stream';
 
 /**
- * A Transform stream that saves chunks to a buffer while passing them through
+ * A Transform stream that buffers data chunks while passing them through
+ * Maintains an internal buffer of all data that passes through the stream
+ * Used as the base class for both main video buffer and FFmpeg transform
  */
 export class BufferTransform extends Transform {
 	protected buffer: Buffer[] = [];
@@ -9,6 +11,10 @@ export class BufferTransform extends Transform {
 	protected debugName: string;
 	protected isFinished = false;
 
+	/**
+	 * Creates a new BufferTransform instance
+	 * @param {string} debugName - Name used for debugging and logging
+	 */
 	constructor(debugName = 'BufferTransform') {
 		super();
 		this.debugName = debugName;
@@ -29,6 +35,12 @@ export class BufferTransform extends Transform {
 		});
 	}
 
+	/**
+	 * Transform implementation that stores chunks in buffer while passing them through
+	 * @param {any} chunk - Data chunk to process
+	 * @param {BufferEncoding} encoding - Chunk encoding
+	 * @param {TransformCallback} callback - Callback to signal chunk processing completion
+	 */
 	_transform(chunk: any, encoding: BufferEncoding, callback: TransformCallback): void {
 		try {
 			console.log(`[${this.debugName}] _transform called with chunk size: ${chunk.length} bytes`);
@@ -47,6 +59,10 @@ export class BufferTransform extends Transform {
 		}
 	}
 
+	/**
+	 * Called when the transform stream is being flushed
+	 * @param {TransformCallback} callback - Callback to signal flush completion
+	 */
 	_flush(callback: TransformCallback): void {
 		console.log(`[${this.debugName}] _flush called`);
 		this.isFinished = true;
@@ -56,6 +72,10 @@ export class BufferTransform extends Transform {
 		callback();
 	}
 
+	/**
+	 * Called when the transform stream is ending
+	 * @param {TransformCallback} callback - Callback to signal stream end
+	 */
 	_final(callback: TransformCallback): void {
 		console.log(`[${this.debugName}] _final called`);
 		this.isFinished = true;
@@ -65,6 +85,10 @@ export class BufferTransform extends Transform {
 		callback();
 	}
 
+	/**
+	 * Returns the complete buffered data as a single Buffer
+	 * @returns {Buffer} Concatenated buffer of all processed data
+	 */
 	getBuffer(): Buffer {
 		console.log(`[${this.debugName}] getBuffer called`);
 		console.log(`[${this.debugName}] Current state: ${this.totalLength} bytes from ${this.buffer.length} chunks`);
@@ -79,6 +103,10 @@ export class BufferTransform extends Transform {
 		return result;
 	}
 
+	/**
+	 * Checks if the stream has finished processing
+	 * @returns {boolean} True if stream is finished
+	 */
 	isComplete(): boolean {
 		return this.isFinished;
 	}

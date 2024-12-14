@@ -2,11 +2,20 @@ import { PassThrough, Readable } from 'stream';
 import { BufferTransform } from './transforms/buffer-transform';
 import { FFmpegTransform } from './transforms/ffmpeg-transform';
 
+/**
+ * Result of the parallel stream processing containing both buffers
+ */
 interface ProcessingResult {
     mainBuffer: Buffer;
     thumbnailBuffer: Buffer;
 }
 
+/**
+ * Manages parallel processing of video streams
+ * Handles two parallel transform streams:
+ * 1. MainBuffer - stores the original video data
+ * 2. FFmpegTransform - creates a thumbnail from the video
+ */
 export class StreamProcessor {
     private mainBuffer: BufferTransform;
     private ffmpegStream: FFmpegTransform;
@@ -15,11 +24,22 @@ export class StreamProcessor {
     private resolvePromise: ((result: ProcessingResult) => void) | null = null;
     private rejectPromise: ((error: Error) => void) | null = null;
 
+    /**
+     * Creates a new StreamProcessor instance
+     * @param {BufferTransform} mainBuffer - Transform stream for storing original video
+     * @param {FFmpegTransform} ffmpegStream - Transform stream for creating thumbnail
+     */
     constructor(mainBuffer: BufferTransform, ffmpegStream: FFmpegTransform) {
         this.mainBuffer = mainBuffer;
         this.ffmpegStream = ffmpegStream;
     }
 
+    /**
+     * Process input stream through parallel transform streams
+     * Sets up piping between streams and handles completion
+     * @param {Readable} inputStream - Source video stream
+     * @returns {Promise<ProcessingResult>} Processed video and thumbnail buffers
+     */
     async processStream(inputStream: Readable): Promise<ProcessingResult> {
         return new Promise((resolve, reject) => {
             this.resolvePromise = resolve;
@@ -44,6 +64,11 @@ export class StreamProcessor {
         }
     }
 
+    /**
+     * Sets up the main video buffer stream
+     * Handles events for data flow and completion
+     * @param {PassThrough} mainPass - PassThrough stream for main video data
+     */
     private setupMainStream(mainPass: PassThrough): void {
         const mainPipe = mainPass.pipe(this.mainBuffer);
         mainPipe
@@ -66,6 +91,11 @@ export class StreamProcessor {
             });
     }
 
+    /**
+     * Sets up the FFmpeg transform stream for thumbnail creation
+     * Handles events for data flow and completion
+     * @param {PassThrough} ffmpegPass - PassThrough stream for FFmpeg processing
+     */
     private setupFfmpegStream(ffmpegPass: PassThrough): void {
         const ffmpegPipe = ffmpegPass.pipe(this.ffmpegStream);
         ffmpegPipe
@@ -94,6 +124,12 @@ export class StreamProcessor {
             });
     }
 
+    /**
+     * Sets up the input stream and pipes data to both transform streams
+     * @param {Readable} inputStream - Source video stream
+     * @param {PassThrough} mainPass - PassThrough for main video
+     * @param {PassThrough} ffmpegPass - PassThrough for FFmpeg
+     */
     private setupInputStream(inputStream: Readable, mainPass: PassThrough, ffmpegPass: PassThrough): void {
         inputStream
             .on('data', (chunk) => {

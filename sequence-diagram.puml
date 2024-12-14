@@ -1,0 +1,62 @@
+@startuml Video Processing Flow
+
+participant "CLI" as cli
+participant "ProcessVideoFile" as pvf
+participant "ProcessVideo" as pv
+participant "StreamProcessor" as sp
+participant "InputStream" as is
+participant "MainBuffer" as mb #lightblue
+participant "FFmpegTransform" as ff #lightgreen
+participant "FileSystem" as fs
+
+cli -> pvf: process-video command\nwith input/output paths
+activate pvf
+
+pvf -> fs: check input file exists
+fs --> pvf: file exists
+
+pvf -> fs: create input stream
+fs --> pvf: return input stream
+
+pvf -> pv: processVideo(inputStream, options)
+activate pv
+
+pv -> mb: create MainBuffer
+pv -> ff: create FFmpegTransform
+pv -> sp: new StreamProcessor(mainBuffer, ffmpegStream)
+
+pv -> sp: processStream(inputStream)
+activate sp
+
+sp -> sp: setup streams & pipes
+
+group Parallel Stream Processing
+    is -> mb: write chunks
+    is -> ff: write same chunks
+    
+    mb -> mb: buffer chunks
+    ff -> ff: transform video\nto thumbnail
+end
+
+mb --> sp: main processing complete
+ff --> sp: FFmpeg processing complete
+
+sp -> mb: getBuffer()
+mb --> sp: return video buffer
+sp -> ff: getBuffer()
+ff --> sp: return thumbnail buffer
+
+sp --> pv: return ProcessingResult
+deactivate sp
+
+pv --> pvf: return ProcessingResult
+deactivate pv
+
+pvf -> fs: create output directory
+pvf -> fs: write video file
+pvf -> fs: write thumbnail file
+
+pvf --> cli: processing complete
+deactivate pvf
+
+@enduml 
