@@ -1,0 +1,7 @@
+.idea/
+stdout.log
+test.mp4
+test/
+node_modules/
+.DS_Store
+.devbox/
