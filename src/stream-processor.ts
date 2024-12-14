@@ -1,44 +1,47 @@
 import { PassThrough, Readable } from 'stream';
 import { BufferTransform } from './transforms/buffer-transform';
-import { FFmpegTransform } from './transforms/ffmpeg-transform';
 
 /**
- * Result of the parallel stream processing containing both buffers
+ * Interface for a transform instance that can be processed
  */
-interface ProcessingResult {
-    mainBuffer: Buffer;
-    thumbnailBuffer: Buffer;
+export interface TransformInstance {
+    transform: BufferTransform;
+    name: string;
 }
 
 /**
- * Manages parallel processing of video streams
- * Handles two parallel transform streams:
- * 1. MainBuffer - stores the original video data
- * 2. FFmpegTransform - creates a thumbnail from the video
+ * Dynamic result type containing buffers from all transforms
+ */
+export type ProcessingResult = {
+    [key: string]: Buffer;
+};
+
+/**
+ * Manages parallel processing of streams through multiple transforms
+ * Each transform processes the input stream independently and produces a buffer
  */
 export class StreamProcessor {
-    private mainBuffer: BufferTransform;
-    private ffmpegStream: FFmpegTransform;
-    private mainCompleted = false;
-    private ffmpegCompleted = false;
+    private transforms: TransformInstance[];
+    private completedTransforms: Set<string> = new Set();
     private resolvePromise: ((result: ProcessingResult) => void) | null = null;
     private rejectPromise: ((error: Error) => void) | null = null;
 
     /**
      * Creates a new StreamProcessor instance
-     * @param {BufferTransform} mainBuffer - Transform stream for storing original video
-     * @param {FFmpegTransform} ffmpegStream - Transform stream for creating thumbnail
+     * @param {TransformInstance[]} transforms - Array of transform instances to process the stream
      */
-    constructor(mainBuffer: BufferTransform, ffmpegStream: FFmpegTransform) {
-        this.mainBuffer = mainBuffer;
-        this.ffmpegStream = ffmpegStream;
+    constructor(transforms: TransformInstance[]) {
+        if (!transforms.length) {
+            throw new Error('At least one transform instance is required');
+        }
+        this.transforms = transforms;
     }
 
     /**
      * Process input stream through parallel transform streams
      * Sets up piping between streams and handles completion
-     * @param {Readable} inputStream - Source video stream
-     * @returns {Promise<ProcessingResult>} Processed video and thumbnail buffers
+     * @param {Readable} inputStream - Source stream
+     * @returns {Promise<ProcessingResult>} Processed buffers from all transforms
      */
     async processStream(inputStream: Readable): Promise<ProcessingResult> {
         return new Promise((resolve, reject) => {
@@ -46,12 +49,13 @@ export class StreamProcessor {
             this.rejectPromise = reject;
 
             try {
-                const mainPass = new PassThrough();
-                const ffmpegPass = new PassThrough();
-
-                this.setupMainStream(mainPass);
-                this.setupFfmpegStream(ffmpegPass);
-                this.setupInputStream(inputStream, mainPass, ffmpegPass);
+                const passStreams = this.transforms.map(() => new PassThrough());
+                
+                this.transforms.forEach((transform, index) => {
+                    this.setupTransformStream(transform, passStreams[index]);
+                });
+                
+                this.setupInputStream(inputStream, passStreams);
             } catch (error) {
                 this.handleError(error);
             }
@@ -65,80 +69,53 @@ export class StreamProcessor {
     }
 
     /**
-     * Sets up the main video buffer stream
+     * Sets up a transform stream
      * Handles events for data flow and completion
-     * @param {PassThrough} mainPass - PassThrough stream for main video data
+     * @param {TransformInstance} transformInstance - Transform instance to setup
+     * @param {PassThrough} passStream - PassThrough stream for the transform
      */
-    private setupMainStream(mainPass: PassThrough): void {
-        const mainPipe = mainPass.pipe(this.mainBuffer);
-        mainPipe
-            .on('data', (chunk) => {
-                console.log(`Main stream data chunk: ${chunk.length} bytes`);
-            })
-            .on('finish', () => {
-                console.log('Main stream finished');
-                this.mainCompleted = true;
-                this.checkCompletion();
-            })
-            .on('end', () => {
-                console.log('Main stream ended');
-                this.mainCompleted = true;
-                this.checkCompletion();
-            })
-            .on('error', (error) => {
-                console.error('Error in main stream:', error);
-                this.handleError(error);
-            });
-    }
+    private setupTransformStream(transformInstance: TransformInstance, passStream: PassThrough): void {
+        const { transform, name } = transformInstance;
+        const pipe = passStream.pipe(transform);
 
-    /**
-     * Sets up the FFmpeg transform stream for thumbnail creation
-     * Handles events for data flow and completion
-     * @param {PassThrough} ffmpegPass - PassThrough stream for FFmpeg processing
-     */
-    private setupFfmpegStream(ffmpegPass: PassThrough): void {
-        const ffmpegPipe = ffmpegPass.pipe(this.ffmpegStream);
-        ffmpegPipe
+        pipe
             .on('data', (chunk) => {
-                console.log(`FFmpeg stream data chunk: ${chunk.length} bytes`);
+                console.log(`${name} stream data chunk: ${chunk.length} bytes`);
             })
             .on('finish', () => {
-                console.log('FFmpeg stream finished');
-                this.ffmpegCompleted = true;
+                console.log(`${name} stream finished`);
+                this.completedTransforms.add(name);
                 this.checkCompletion();
             })
             .on('end', () => {
-                console.log('FFmpeg stream ended');
-                this.ffmpegCompleted = true;
+                console.log(`${name} stream ended`);
+                this.completedTransforms.add(name);
                 this.checkCompletion();
             })
             .on('error', (error) => {
                 if ((error as NodeJS.ErrnoException).code === 'EPIPE') {
-                    console.log('FFmpeg stream completed (EPIPE expected)');
-                    this.ffmpegCompleted = true;
+                    console.log(`${name} stream completed (EPIPE expected)`);
+                    this.completedTransforms.add(name);
                     this.checkCompletion();
                     return;
                 }
-                console.error('Error in FFmpeg stream:', error);
+                console.error(`Error in ${name} stream:`, error);
                 this.handleError(error);
             });
     }
 
     /**
-     * Sets up the input stream and pipes data to both transform streams
-     * @param {Readable} inputStream - Source video stream
-     * @param {PassThrough} mainPass - PassThrough for main video
-     * @param {PassThrough} ffmpegPass - PassThrough for FFmpeg
+     * Sets up the input stream and pipes data to all transform streams
+     * @param {Readable} inputStream - Source stream
+     * @param {PassThrough[]} passStreams - PassThrough streams for each transform
      */
-    private setupInputStream(inputStream: Readable, mainPass: PassThrough, ffmpegPass: PassThrough): void {
+    private setupInputStream(inputStream: Readable, passStreams: PassThrough[]): void {
         inputStream
             .on('data', (chunk) => {
-                mainPass.write(chunk);
-                ffmpegPass.write(chunk);
+                passStreams.forEach(pass => pass.write(chunk));
             })
             .on('end', () => {
-                mainPass.end();
-                ffmpegPass.end();
+                passStreams.forEach(pass => pass.end());
             })
             .on('error', (error) => {
                 console.error('Error in input stream:', error);
@@ -147,29 +124,27 @@ export class StreamProcessor {
     }
 
     private checkCompletion(): void {
-        if (this.mainCompleted && this.ffmpegCompleted && this.resolvePromise) {
+        const allCompleted = this.transforms.every(t => this.completedTransforms.has(t.name));
+        
+        if (allCompleted && this.resolvePromise) {
             console.log('All streams completed');
             console.log('Getting buffers...');
 
             try {
-                const mainData = this.mainBuffer.getBuffer();
-                const thumbnailData = this.ffmpegStream.getBuffer();
-
-                console.log(`Main buffer size: ${mainData.length} bytes`);
-                console.log(`Thumbnail buffer size: ${thumbnailData.length} bytes`);
-
-                if (mainData.length === 0) {
-                    throw new Error('Main buffer is empty');
+                const result: ProcessingResult = {};
+                
+                for (const { transform, name } of this.transforms) {
+                    const buffer = transform.getBuffer();
+                    console.log(`${name} buffer size: ${buffer.length} bytes`);
+                    
+                    if (buffer.length === 0) {
+                        throw new Error(`${name} buffer is empty`);
+                    }
+                    
+                    result[name] = buffer;
                 }
 
-                if (thumbnailData.length === 0) {
-                    throw new Error('Thumbnail buffer is empty');
-                }
-
-                this.resolvePromise({
-                    mainBuffer: mainData,
-                    thumbnailBuffer: thumbnailData
-                });
+                this.resolvePromise(result);
             } catch (error) {
                 this.handleError(error);
             }

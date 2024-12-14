@@ -4,7 +4,7 @@ import path from 'path';
 import { Readable } from 'stream';
 import { BufferTransform } from './transforms/buffer-transform';
 import { FFmpegTransform } from './transforms/ffmpeg-transform';
-import { StreamProcessor } from './stream-processor';
+import { StreamProcessor, TransformInstance } from './stream-processor';
 
 /**
  * Options for video processing including size and seek time
@@ -15,38 +15,38 @@ interface VideoProcessingOptions {
 }
 
 /**
- * Result object containing processed video and thumbnail buffers
- */
-interface ProcessingResult {
-	mainBuffer: Buffer;
-	thumbnailBuffer: Buffer;
-}
-
-/**
  * Process a video stream through parallel transform streams
  * @param {Readable} inputStream - The input video stream to process
  * @param {VideoProcessingOptions} options - Processing options for video transformation
- * @returns {Promise<ProcessingResult>} The processed video and thumbnail buffers
+ * @returns {Promise<{mainBuffer: Buffer, thumbnailBuffer: Buffer}>} The processed video and thumbnail buffers
  */
 const processVideo = async (
 	inputStream: Readable,
 	options: VideoProcessingOptions = {}
-): Promise<ProcessingResult> => {
+): Promise<{mainBuffer: Buffer, thumbnailBuffer: Buffer}> => {
 	console.log('Starting video processing...');
 
-	const mainBuffer = new BufferTransform('MainBuffer');
-	const ffmpegStream = new FFmpegTransform(options.size || '100%', options.seek || '00:00:00.1');
-	if (!mainBuffer || !ffmpegStream) {
-		throw new Error('Failed to create transform streams');
-	}
+	const transforms: TransformInstance[] = [
+		{
+			transform: new BufferTransform('MainBuffer'),
+			name: 'mainBuffer'
+		},
+		{
+			transform: new FFmpegTransform(options.size || '100%', options.seek || '00:00:00.1'),
+			name: 'thumbnailBuffer'
+		}
+	];
 
 	try {
-		const processor = new StreamProcessor(mainBuffer, ffmpegStream);
+		const processor = new StreamProcessor(transforms);
 		console.log('Running streams...');
-		return await processor.processStream(inputStream);
+		const result = await processor.processStream(inputStream);
+		return {
+			mainBuffer: result.mainBuffer,
+			thumbnailBuffer: result.thumbnailBuffer
+		};
 	} finally {
-		mainBuffer.destroy();
-		ffmpegStream.destroy();
+		transforms.forEach(t => t.transform.destroy());
 	}
 };
 
