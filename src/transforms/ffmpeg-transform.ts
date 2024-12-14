@@ -84,7 +84,7 @@ export class FFmpegTransform extends ChildProcessTransform {
 			'-vframes', '1',   // Extract one frame
 			'-vf', scaleArg,   // Scale video
 			'-f', 'mjpeg',     // Force MJPEG format for output
-			'-loglevel', 'warning', // Show warnings and errors
+			// '-loglevel', 'warning', // Show warnings and errors
 			'-nostdin',        // Disable interaction
 			'pipe:1'           // Output to pipe
 		];

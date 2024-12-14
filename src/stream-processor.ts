@@ -2,18 +2,10 @@ import { PassThrough, Readable } from 'stream';
 import { BufferTransform } from './transforms/buffer-transform';
 
 /**
- * Interface for a transform instance that can be processed
- */
-export interface TransformInstance {
-    transform: BufferTransform;
-    name: string;
-}
-
-/**
  * Dynamic result type containing buffers from all transforms
  */
 export type ProcessingResult = {
-    [key: string]: Buffer;
+    [K in string]: Buffer;
 };
 
 /**
@@ -21,18 +13,18 @@ export type ProcessingResult = {
  * Each transform processes the input stream independently and produces a buffer
  */
 export class StreamProcessor {
-    private transforms: TransformInstance[];
+    private transforms: BufferTransform[];
     private completedTransforms: Set<string> = new Set();
     private resolvePromise: ((result: ProcessingResult) => void) | null = null;
     private rejectPromise: ((error: Error) => void) | null = null;
 
     /**
      * Creates a new StreamProcessor instance
-     * @param {TransformInstance[]} transforms - Array of transform instances to process the stream
+     * @param {BufferTransform[]} transforms - Array of transform streams to process
      */
-    constructor(transforms: TransformInstance[]) {
+    constructor(transforms: BufferTransform[]) {
         if (!transforms.length) {
-            throw new Error('At least one transform instance is required');
+            throw new Error('At least one transform is required');
         }
         this.transforms = transforms;
     }
@@ -71,35 +63,35 @@ export class StreamProcessor {
     /**
      * Sets up a transform stream
      * Handles events for data flow and completion
-     * @param {TransformInstance} transformInstance - Transform instance to setup
+     * @param {BufferTransform} transform - Transform stream to setup
      * @param {PassThrough} passStream - PassThrough stream for the transform
      */
-    private setupTransformStream(transformInstance: TransformInstance, passStream: PassThrough): void {
-        const { transform, name } = transformInstance;
+    private setupTransformStream(transform: BufferTransform, passStream: PassThrough): void {
+        const transformName = transform.constructor.name;
         const pipe = passStream.pipe(transform);
 
         pipe
             .on('data', (chunk) => {
-                console.log(`${name} stream data chunk: ${chunk.length} bytes`);
+                console.log(`${transformName} data chunk: ${chunk.length} bytes`);
             })
             .on('finish', () => {
-                console.log(`${name} stream finished`);
-                this.completedTransforms.add(name);
+                console.log(`${transformName} finished`);
+                this.completedTransforms.add(transformName);
                 this.checkCompletion();
             })
             .on('end', () => {
-                console.log(`${name} stream ended`);
-                this.completedTransforms.add(name);
+                console.log(`${transformName} ended`);
+                this.completedTransforms.add(transformName);
                 this.checkCompletion();
             })
             .on('error', (error) => {
                 if ((error as NodeJS.ErrnoException).code === 'EPIPE') {
-                    console.log(`${name} stream completed (EPIPE expected)`);
-                    this.completedTransforms.add(name);
+                    console.log(`${transformName} completed (EPIPE expected)`);
+                    this.completedTransforms.add(transformName);
                     this.checkCompletion();
                     return;
                 }
-                console.error(`Error in ${name} stream:`, error);
+                console.error(`Error in ${transformName}:`, error);
                 this.handleError(error);
             });
     }
@@ -124,7 +116,7 @@ export class StreamProcessor {
     }
 
     private checkCompletion(): void {
-        const allCompleted = this.transforms.every(t => this.completedTransforms.has(t.name));
+        const allCompleted = this.transforms.every(t => this.completedTransforms.has(t.constructor.name));
         
         if (allCompleted && this.resolvePromise) {
             console.log('All streams completed');
@@ -133,15 +125,16 @@ export class StreamProcessor {
             try {
                 const result: ProcessingResult = {};
                 
-                for (const { transform, name } of this.transforms) {
+                for (const transform of this.transforms) {
+                    const transformName = transform.constructor.name;
                     const buffer = transform.getBuffer();
-                    console.log(`${name} buffer size: ${buffer.length} bytes`);
+                    console.log(`${transformName} buffer size: ${buffer.length} bytes`);
                     
                     if (buffer.length === 0) {
-                        throw new Error(`${name} buffer is empty`);
+                        throw new Error(`${transformName} buffer is empty`);
                     }
                     
-                    result[name] = buffer;
+                    result[transformName] = buffer;
                 }
 
                 this.resolvePromise(result);

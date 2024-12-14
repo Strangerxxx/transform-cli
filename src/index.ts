@@ -4,7 +4,7 @@ import path from 'path';
 import { Readable } from 'stream';
 import { BufferTransform } from './transforms/buffer-transform';
 import { FFmpegTransform } from './transforms/ffmpeg-transform';
-import { StreamProcessor, TransformInstance } from './stream-processor';
+import { StreamProcessor } from './stream-processor';
 
 /**
  * Options for video processing including size and seek time
@@ -26,15 +26,9 @@ const processVideo = async (
 ): Promise<{mainBuffer: Buffer, thumbnailBuffer: Buffer}> => {
 	console.log('Starting video processing...');
 
-	const transforms: TransformInstance[] = [
-		{
-			transform: new BufferTransform('MainBuffer'),
-			name: 'mainBuffer'
-		},
-		{
-			transform: new FFmpegTransform(options.size || '100%', options.seek || '00:00:00.1'),
-			name: 'thumbnailBuffer'
-		}
+	const transforms = [
+		new BufferTransform(),
+		new FFmpegTransform(options.size || '100%', options.seek || '00:00:00.1')
 	];
 
 	try {
@@ -42,11 +36,11 @@ const processVideo = async (
 		console.log('Running streams...');
 		const result = await processor.processStream(inputStream);
 		return {
-			mainBuffer: result.mainBuffer,
-			thumbnailBuffer: result.thumbnailBuffer
+			mainBuffer: result.BufferTransform,
+			thumbnailBuffer: result.FFmpegTransform
 		};
 	} finally {
-		transforms.forEach(t => t.transform.destroy());
+		transforms.forEach(t => t.destroy());
 	}
 };
 
