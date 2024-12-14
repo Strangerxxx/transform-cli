@@ -1,24 +1,60 @@
 import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
+import { Readable } from 'stream';
 import { BufferTransform } from './transforms/buffer-transform';
 import { FFmpegTransform } from './transforms/ffmpeg-transform';
 import { StreamProcessor } from './stream-processor';
 
+interface VideoProcessingOptions {
+	size?: string;
+	seek?: string;
+}
+
+interface ProcessingResult {
+	mainBuffer: Buffer;
+	thumbnailBuffer: Buffer;
+}
+
 const processVideo = async (
-	input: string,
-	output: string,
-	mainBuffer: BufferTransform,
-	ffmpegStream: FFmpegTransform
-) => {
+	inputStream: Readable,
+	options: VideoProcessingOptions = {}
+): Promise<ProcessingResult> => {
 	console.log('Starting video processing...');
 
+	const mainBuffer = new BufferTransform('MainBuffer');
+	const ffmpegStream = new FFmpegTransform(options.size || '100%', options.seek || '00:00:00.1');
+	if (!mainBuffer || !ffmpegStream) {
+		throw new Error('Failed to create transform streams');
+	}
+
 	try {
-		const inputStream = fs.createReadStream(input);
 		const processor = new StreamProcessor(mainBuffer, ffmpegStream);
-		
 		console.log('Running streams...');
-		const { mainBuffer: mainData, thumbnailBuffer: thumbnailData } = await processor.processStream(inputStream);
+		return await processor.processStream(inputStream);
+	} finally {
+		mainBuffer.destroy();
+		ffmpegStream.destroy();
+	}
+};
+
+const processVideoFile = async (
+	input: string,
+	output: string,
+	options: VideoProcessingOptions = {}
+): Promise<void> => {
+	try {
+		if (!fs.existsSync(input)) {
+			throw new Error(`Input file not found: ${input}`);
+		}
+
+		console.log('Started processing:', input);
+
+		// Create input stream
+		const inputStream = fs.createReadStream(input);
+
+		// Process the video
+		const { mainBuffer: mainData, thumbnailBuffer: thumbnailData } = await processVideo(inputStream, options);
 
 		// Create output directory if it doesn't exist
 		fs.mkdirSync(output, { recursive: true });
@@ -34,8 +70,9 @@ const processVideo = async (
 		console.log('Files written successfully');
 		console.log('Original file:', originalPath);
 		console.log('Thumbnail file:', thumbnailPath);
+		console.log('Processing completed successfully');
 	} catch (error) {
-		console.error('Error during video processing:', error);
+		console.error('\nError:', error);
 		throw error;
 	}
 };
@@ -55,32 +92,13 @@ program
 	.option('-s, --size <size>', 'output size (e.g., "100%", "640x480")', '100%')
 	.option('-t, --seek <time>', 'seek time (HH:MM:SS.ms)', '00:00:00.1')
 	.action(async (input: string, output: string, options) => {
-		let mainBuffer: BufferTransform | null = null;
-		let ffmpegStream: FFmpegTransform | null = null;
-
 		try {
-			if (!fs.existsSync(input)) {
-				throw new Error(`Input file not found: ${input}`);
-			}
-
-			console.log('Started processing:', input);
-
-			mainBuffer = new BufferTransform('MainBuffer');
-			ffmpegStream = new FFmpegTransform(options.size, options.seek);
-
-			if (!mainBuffer || !ffmpegStream) {
-				throw new Error('Failed to create transform streams');
-			}
-
-			await processVideo(input, output, mainBuffer, ffmpegStream);
-			console.log('Processing completed successfully');
-
+			await processVideoFile(input, output, {
+				size: options.size,
+				seek: options.seek
+			});
 		} catch (error) {
-			console.error('\nError:', error);
 			process.exit(1);
-		} finally {
-			if (mainBuffer) mainBuffer.destroy();
-			if (ffmpegStream) ffmpegStream.destroy();
 		}
 	});
 
