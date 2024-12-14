@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
-import { Readable } from 'stream';
+import { Readable, PassThrough } from 'stream';
 import { BufferTransform } from './transforms/buffer-transform';
 import { FFmpegTransform } from './transforms/ffmpeg-transform';
 
@@ -15,9 +15,12 @@ const processVideo = async (
 
 	return new Promise((resolve, reject) => {
 		try {
-			// Create two separate readable streams from the input file
-			const inputStream1 = fs.createReadStream(input);
-			const inputStream2 = fs.createReadStream(input);
+			// Create a single input stream
+			const inputStream = fs.createReadStream(input);
+			
+			// Create two PassThrough streams to duplicate the data
+			const mainPass = new PassThrough();
+			const ffmpegPass = new PassThrough();
 
 			console.log('Running streams...');
 
@@ -25,7 +28,7 @@ const processVideo = async (
 			let ffmpegCompleted = false;
 
 			// Handle main stream
-			const mainPipe = inputStream1.pipe(mainBuffer);
+			const mainPipe = mainPass.pipe(mainBuffer);
 			mainPipe
 				.on('data', (chunk) => {
 					console.log(`Main stream data chunk: ${chunk.length} bytes`);
@@ -46,7 +49,7 @@ const processVideo = async (
 				});
 
 			// Handle FFmpeg stream
-			const ffmpegPipe = inputStream2.pipe(ffmpegStream);
+			const ffmpegPipe = ffmpegPass.pipe(ffmpegStream);
 			ffmpegPipe
 				.on('data', (chunk) => {
 					console.log(`FFmpeg stream data chunk: ${chunk.length} bytes`);
@@ -72,6 +75,22 @@ const processVideo = async (
 					console.error('Error in FFmpeg stream:', error);
 					reject(error);
 				});
+
+			// Pipe input stream to both PassThrough streams
+			inputStream.on('data', (chunk) => {
+				mainPass.write(chunk);
+				ffmpegPass.write(chunk);
+			});
+
+			inputStream.on('end', () => {
+				mainPass.end();
+				ffmpegPass.end();
+			});
+
+			inputStream.on('error', (error) => {
+				console.error('Error in input stream:', error);
+				reject(error);
+			});
 
 			function checkCompletion() {
 				if (mainCompleted && ffmpegCompleted) {
@@ -114,18 +133,6 @@ const processVideo = async (
 					}
 				}
 			}
-
-			// Handle input stream errors
-			inputStream1.on('error', (error) => {
-				console.error('Error in input stream 1:', error);
-				reject(error);
-			});
-
-			inputStream2.on('error', (error) => {
-				console.error('Error in input stream 2:', error);
-				reject(error);
-			});
-
 		} catch (error) {
 			reject(error);
 		}
